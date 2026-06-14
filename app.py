@@ -41,11 +41,10 @@ with st.sidebar:
     wilayah = st.text_input("Wilayah Spesifik", value="Banten")
     hari_kebelakang = st.slider("Cari berita berapa hari ke belakang?", 1, 30, 7)
 
-# --- FUNGSI PENCARIAN BERITA (DUCKDUCKGO DENGAN RETRY SYSTEM) ---
+# --- FUNGSI PENCARIAN BERITA (DENGAN SILENT RETRY) ---
 def cari_berita(topik, wilayah, hari):
     query = f'"{topik}" {wilayah}'
     
-    # Konversi hari ke format DuckDuckGo
     if hari <= 1:
         rentang = "d"
     elif hari <= 7:
@@ -55,14 +54,13 @@ def cari_berita(topik, wilayah, hari):
         
     berita_asli = []
     
-    # Pengaturan batas toleransi pengulangan
+    # Maksimal percobaan diam-diam jika server menolak
     max_retries = 3
     
     for attempt in range(max_retries):
         try:
-            # Menggunakan context manager agar koneksi langsung dibersihkan
+            # Gunakan context manager (with) agar koneksi langsung ditutup rapi
             with DDGS() as ddgs:
-                # Mengubah generator langsung menjadi list untuk memastikan data ditarik
                 results = list(ddgs.news(keywords=query, region="id-id", safesearch="off", timelimit=rentang, max_results=10))
                 
                 if results:
@@ -74,14 +72,15 @@ def cari_berita(topik, wilayah, hari):
                             
                 return "\n".join(berita_asli)
                 
-        except Exception as e:
-            # Jika gagal, dan masih ada sisa kesempatan mencoba
+        except Exception:
+            # Jika gagal (diblokir server), aplikasi tidak langsung error.
+            # Aplikasi akan istirahat 3 detik lalu mencoba lagi di background.
             if attempt < max_retries - 1:
-                time.sleep(2)  # Jeda 2 detik sebelum mencoba lagi
+                time.sleep(3)
                 continue
             else:
-                # Jika sudah mencoba 3 kali dan tetap gagal, barulah lempar pesan error
-                return f"ERROR_DDG: {e}"
+                # Jika 3x dicoba masih gagal mutlak, kirim sinyal error
+                return "ERROR_DDG"
 
 # --- TOMBOL PROSES ---
 if st.button("🚀 Buat Laporan Mingguan"):
@@ -90,9 +89,10 @@ if st.button("🚀 Buat Laporan Mingguan"):
             kumpulan_berita = cari_berita(topik, wilayah, hari_kebelakang)
             
             if "ERROR_DDG" in kumpulan_berita:
-                st.error("Gagal menarik data berita. Server pencari sedang sibuk dan memblokir permintaan setelah beberapa kali percobaan. Silakan coba 5-10 menit lagi.")
+                # Pesan error diperhalus dan memberikan instruksi jelas, bukan error sistem mentah
+                st.warning("Mohon maaf, sistem anti-bot DuckDuckGo sedang mengetatkan penjagaan. Mohon tunggu 1-2 menit sebelum menekan tombol kembali.")
             elif not kumpulan_berita.strip():
-                st.warning(f"Sampaikan apa adanya: Benar-benar TIDAK DITEMUKAN berita terkait isu '{topik}' spesifik di '{wilayah}' dalam periode yang dipilih pada mesin pencari berita.")
+                st.info(f"Benar-benar TIDAK DITEMUKAN berita terkait isu '{topik}' spesifik di '{wilayah}' dalam {hari_kebelakang} hari terakhir pada mesin pencari berita.")
             else:
                 client = genai.Client(api_key=api_key)
                 
@@ -119,9 +119,9 @@ if st.button("🚀 Buat Laporan Mingguan"):
                     contents=prompt
                 )
                 
-                st.success("Laporan Berhasil Dibuat dengan URL Asli!")
+                st.success("Laporan Berhasil Dibuat!")
                 st.markdown("### Hasil Laporan Mingguan")
                 st.markdown(response.text)
                 
         except Exception as e:
-            st.error(f"Terjadi kesalahan teknis: {e}")
+            st.error(f"Terjadi kesalahan teknis pada pemrosesan teks: {e}")
