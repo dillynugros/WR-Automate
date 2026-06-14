@@ -1,7 +1,5 @@
 import streamlit as st
-import feedparser
-import urllib.parse
-import requests
+from google_search import DDGS
 from google import genai
 
 # --- MENGAMBIL API KEY SECARA OTOMATIS ---
@@ -10,19 +8,15 @@ api_key = st.secrets["GEMINI_API_KEY"]
 # --- KONFIGURASI ANTARMUKA (UI) ---
 st.set_page_config(page_title="Generator Weekly Report Banten", page_icon="📰", layout="wide")
 
-# --- INJEKSI CSS CUSTOM UNTUK TEMA & WRAPPING ---
 st.markdown("""
     <style>
-    /* Memaksa teks dan link panjang untuk turun ke bawah (wrap) */
     .stMarkdown p, .stMarkdown a {
         word-wrap: break-word;
         overflow-wrap: break-word;
         white-space: pre-wrap;
     }
-    
-    /* Tombol Biru Profesional */
     div.stButton > button {
-        background-color: #1E3A8A; /* Biru Gelap Profesional */
+        background-color: #1E3A8A;
         color: white;
         border-radius: 8px;
         border: none;
@@ -30,7 +24,7 @@ st.markdown("""
         font-weight: bold;
     }
     div.stButton > button:hover {
-        background-color: #0056b3; /* Biru Terang saat Disorot */
+        background-color: #0056b3;
         color: white;
     }
     </style>
@@ -44,63 +38,54 @@ with st.sidebar:
     st.header("⚙️ Pengaturan")
     topik = st.text_input("Topik Berita", value="Makan Bergizi Gratis")
     wilayah = st.text_input("Wilayah Spesifik", value="Banten")
-    
-    # Range slider diperpanjang hingga 30 hari
     hari_kebelakang = st.slider("Cari berita berapa hari ke belakang?", 1, 30, 7)
 
-# --- FUNGSI PENCARIAN & VALIDASI BERITA ---
+# --- FUNGSI PENCARIAN BERITA (GOOGLE) ---
 def cari_berita(topik, wilayah, hari):
-    query = f'"{topik}" {wilayah} when:{hari}d'
-    url_query = urllib.parse.quote(query)
-    rss_url = f"https://news.google.com/rss/search?q={url_query}&hl=id&gl=ID&ceid=ID:id"
+    query = f'"{topik}" {wilayah}'
     
-    feed = feedparser.parse(rss_url)
-    berita_valid = []
+    # Konversi hari ke format Google (d=hari ini, w=minggu ini, m=bulan ini)
+    if hari <= 1:
+        rentang = "d"
+    elif hari <= 7:
+        rentang = "w"
+    else:
+        rentang = "m"
+        
+    berita_asli = []
     
-    # Menyamar sebagai browser biasa agar tidak diblokir oleh media online
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    
-    if getattr(feed, 'entries', None):
-        for entry in feed.entries:
-            # Jika sudah dapat 10 berita valid, hentikan pencarian
-            if len(berita_valid) >= 10:
-                break
-                
-            title = getattr(entry, 'title', 'Tanpa Judul')
-            link = getattr(entry, 'link', '#')
-            
-            if link != '#' and "news.google.com" in link:
-                try:
-                    # Skrip "mengetuk" tautan untuk memastikan webnya tidak error
-                    # Menggunakan timeout 5 detik agar aplikasi tidak macet menunggu web lemot
-                    response = requests.get(link, headers=headers, timeout=5, allow_redirects=True)
+    try:
+        # DDGS langsung memberikan tautan final ke situs web berita
+        results = DDGS().news(keywords=query, region="id-id", safesearch="off", timelimit=rentang, max_results=10)
+        
+        if results:
+            for r in results:
+                title = r.get('title', 'Tanpa Judul')
+                link = r.get('url', '')
+                if link:
+                    berita_asli.append(f"- {title} ({link})")
                     
-                    # Jika status 200 (OK), masukkan ke dalam daftar
-                    if response.status_code == 200:
-                        berita_valid.append(f"- {title} ({link})")
-                except requests.RequestException:
-                    # Jika tautan mati, error, atau lemot, abaikan dan lanjut ke berita berikutnya
-                    continue
-            
-    return "\n".join(berita_valid)
+        return "\n".join(berita_asli)
+    except Exception as e:
+        # Menangkap error jika Google membatasi pencarian
+        return f"ERROR_DDG: {e}"
 
 # --- TOMBOL PROSES ---
 if st.button("🚀 Buat Laporan Mingguan"):
-    with st.spinner("Mencari berita, memvalidasi tautan, dan menyusun laporan..."):
+    with st.spinner("Mencari URL berita asli dan menyusun laporan..."):
         try:
-            # 1. Tarik & Validasi Data Berita
             kumpulan_berita = cari_berita(topik, wilayah, hari_kebelakang)
             
-            # 2. Jujur jika tidak ada berita valid
-            if not kumpulan_berita.strip():
-                st.warning(f"Sesuai parameter yang diminta, tidak ada pemberitaan valid atau akuntabel terkait isu '{topik}' spesifik di '{wilayah}' dalam {hari_kebelakang} hari terakhir.")
+            if "ERROR_DDG" in kumpulan_berita:
+                st.error("Gagal menarik data berita. Server pencari sedang sibuk, silakan coba beberapa saat lagi.")
+            elif not kumpulan_berita.strip():
+                st.warning(f"Sampaikan apa adanya: Benar-benar TIDAK DITEMUKAN berita terkait isu '{topik}' spesifik di '{wilayah}' dalam periode yang dipilih pada mesin pencari berita.")
             else:
-                # 3. Proses ke Gemini API hanya jika ada berita valid
                 client = genai.Client(api_key=api_key)
                 
                 prompt = f"""
-                Anda adalah analis kebijakan. Berikut adalah daftar berita VALID 
-                tentang '{topik}' di wilayah '{wilayah}' selama {hari_kebelakang} hari terakhir:
+                Anda adalah analis kebijakan. Berikut adalah daftar berita VALID dengan tautan langsung 
+                tentang '{topik}' di wilayah '{wilayah}':
                 
                 {kumpulan_berita}
                 
@@ -113,7 +98,7 @@ if st.button("🚀 Buat Laporan Mingguan"):
                 PENTING:
                 1. Pastikan mencantumkan sumber link berita persis di bawah setiap isu.
                 2. JANGAN PERNAH menyajikan hasil di dalam format 'code block' (tanda ```). Tuliskan semuanya sebagai teks paragraf biasa.
-                3. Jangan mengarang informasi. Berpegang teguh HANYA pada berita yang diberikan.
+                3. Jangan mengarang informasi. Berpegang teguh HANYA pada daftar berita di atas.
                 """
                 
                 response = client.models.generate_content(
@@ -121,8 +106,7 @@ if st.button("🚀 Buat Laporan Mingguan"):
                     contents=prompt
                 )
                 
-                # Tampilkan Hasil
-                st.success("Laporan Berhasil Dibuat dengan sumber berita tervalidasi!")
+                st.success("Laporan Berhasil Dibuat dengan URL Asli!")
                 st.markdown("### Hasil Laporan Mingguan")
                 st.markdown(response.text)
                 
