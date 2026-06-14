@@ -1,6 +1,7 @@
 import streamlit as st
 import feedparser
 import urllib.parse
+import requests
 from google import genai
 
 # --- MENGAMBIL API KEY SECARA OTOMATIS ---
@@ -47,43 +48,58 @@ with st.sidebar:
     # Range slider diperpanjang hingga 30 hari
     hari_kebelakang = st.slider("Cari berita berapa hari ke belakang?", 1, 30, 7)
 
-# --- FUNGSI PENCARIAN BERITA ---
+# --- FUNGSI PENCARIAN & VALIDASI BERITA ---
 def cari_berita(topik, wilayah, hari):
-    # Mengapit topik dengan kutipan agar Google News tidak salah membaca konteks
     query = f'"{topik}" {wilayah} when:{hari}d'
     url_query = urllib.parse.quote(query)
     rss_url = f"https://news.google.com/rss/search?q={url_query}&hl=id&gl=ID&ceid=ID:id"
     
     feed = feedparser.parse(rss_url)
-    berita_list = []
+    berita_valid = []
     
-    # Validasi ketat untuk menghindari 'tautan palsu'
+    # Menyamar sebagai browser biasa agar tidak diblokir oleh media online
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    
     if getattr(feed, 'entries', None):
-        for entry in feed.entries[:10]: 
+        for entry in feed.entries:
+            # Jika sudah dapat 10 berita valid, hentikan pencarian
+            if len(berita_valid) >= 10:
+                break
+                
             title = getattr(entry, 'title', 'Tanpa Judul')
             link = getattr(entry, 'link', '#')
             
-            # Abaikan jika link tidak valid/kosong
             if link != '#' and "news.google.com" in link:
-                berita_list.append(f"- {title} ({link})")
+                try:
+                    # Skrip "mengetuk" tautan untuk memastikan webnya tidak error
+                    # Menggunakan timeout 5 detik agar aplikasi tidak macet menunggu web lemot
+                    response = requests.get(link, headers=headers, timeout=5, allow_redirects=True)
+                    
+                    # Jika status 200 (OK), masukkan ke dalam daftar
+                    if response.status_code == 200:
+                        berita_valid.append(f"- {title} ({link})")
+                except requests.RequestException:
+                    # Jika tautan mati, error, atau lemot, abaikan dan lanjut ke berita berikutnya
+                    continue
             
-    return "\n".join(berita_list)
+    return "\n".join(berita_valid)
 
 # --- TOMBOL PROSES ---
 if st.button("🚀 Buat Laporan Mingguan"):
-    with st.spinner("Mencari berita dan menyusun laporan..."):
+    with st.spinner("Mencari berita, memvalidasi tautan, dan menyusun laporan..."):
         try:
-            # 1. Tarik Data Berita
+            # 1. Tarik & Validasi Data Berita
             kumpulan_berita = cari_berita(topik, wilayah, hari_kebelakang)
             
+            # 2. Jujur jika tidak ada berita valid
             if not kumpulan_berita.strip():
-                st.warning(f"Tidak ditemukan berita kredibel untuk topik '{topik}' dalam {hari_kebelakang} hari terakhir.")
+                st.warning(f"Sesuai parameter yang diminta, tidak ada pemberitaan valid atau akuntabel terkait isu '{topik}' spesifik di '{wilayah}' dalam {hari_kebelakang} hari terakhir.")
             else:
-                # 2. Proses ke Gemini API
+                # 3. Proses ke Gemini API hanya jika ada berita valid
                 client = genai.Client(api_key=api_key)
                 
                 prompt = f"""
-                Anda adalah analis kebijakan. Berikut adalah daftar berita 
+                Anda adalah analis kebijakan. Berikut adalah daftar berita VALID 
                 tentang '{topik}' di wilayah '{wilayah}' selama {hari_kebelakang} hari terakhir:
                 
                 {kumpulan_berita}
@@ -97,6 +113,7 @@ if st.button("🚀 Buat Laporan Mingguan"):
                 PENTING:
                 1. Pastikan mencantumkan sumber link berita persis di bawah setiap isu.
                 2. JANGAN PERNAH menyajikan hasil di dalam format 'code block' (tanda ```). Tuliskan semuanya sebagai teks paragraf biasa.
+                3. Jangan mengarang informasi. Berpegang teguh HANYA pada berita yang diberikan.
                 """
                 
                 response = client.models.generate_content(
@@ -104,8 +121,8 @@ if st.button("🚀 Buat Laporan Mingguan"):
                     contents=prompt
                 )
                 
-                # 3. Tampilkan Hasil
-                st.success("Laporan Berhasil Dibuat!")
+                # Tampilkan Hasil
+                st.success("Laporan Berhasil Dibuat dengan sumber berita tervalidasi!")
                 st.markdown("### Hasil Laporan Mingguan")
                 st.markdown(response.text)
                 
