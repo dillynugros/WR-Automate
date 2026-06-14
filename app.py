@@ -1,9 +1,12 @@
 import streamlit as st
-from ddgs import DDGS
+import requests
+import urllib.parse
+from datetime import datetime, timedelta, timezone
 from google import genai
 
 # --- MENGAMBIL API KEY SECARA OTOMATIS ---
-api_key = st.secrets["GEMINI_API_KEY"]
+gemini_api_key = st.secrets["GEMINI_API_KEY"]
+gnews_api_key = st.secrets["GNEWS_API_KEY"]
 
 # --- KONFIGURASI ANTARMUKA (UI) ---
 st.set_page_config(page_title="Generator Weekly Report Banten", page_icon="📰", layout="wide")
@@ -31,7 +34,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 st.title("📰 Generator Laporan Mingguan Otomatis")
-st.markdown("Aplikasi ini menarik berita terkini dan menggunakan Gemini AI untuk menyusun Isu Strategis & Rekomendasi.")
+st.markdown("Aplikasi ini menarik berita terkini via API resmi dan menggunakan Gemini AI untuk menyusun Isu Strategis & Rekomendasi.")
 
 # --- SIDEBAR UNTUK PENGATURAN ---
 with st.sidebar:
@@ -40,18 +43,17 @@ with st.sidebar:
     wilayah = st.text_input("Wilayah Spesifik", value="Banten")
     hari_kebelakang = st.slider("Cari berita berapa hari ke belakang?", 1, 30, 7)
 
-# --- FUNGSI PENCARIAN BERITA (DENGAN FILTER MEDIA BESAR) ---
-def cari_berita(topik, wilayah, hari):
-    query = f'"{topik}" {wilayah}'
+# --- FUNGSI PENCARIAN BERITA (GNEWS API RESMI + FILTER MEDIA BESAR) ---
+def cari_berita_api(topik, wilayah, hari):
+    query = f'"{topik}" AND "{wilayah}"'
+    url_query = urllib.parse.quote(query)
     
-    # Konversi hari ke format pencarian
-    if hari <= 1:
-        rentang = "d"
-    elif hari <= 7:
-        rentang = "w"
-    else:
-        rentang = "m"
-        
+    # Kalkulasi batas waktu mundur sesuai slider (Format ISO 8601 UTC)
+    waktu_mulai = (datetime.now(timezone.utc) - timedelta(days=hari)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    # Endpoint GNews API
+    url = f"https://gnews.io/api/v4/search?q={url_query}&lang=id&country=id&max=20&from={waktu_mulai}&apikey={gnews_api_key}"
+    
     berita_asli = []
     
     # DAFTAR PUTIH (WHITELIST) MEDIA BESAR KREDIBEL
@@ -60,44 +62,49 @@ def cari_berita(topik, wilayah, hari):
         "cnnindonesia.com", "republika.co.id", "bisnis.com", 
         "cnbcindonesia.com", "kontan.co.id", "investor.id", 
         "liputan6.com", "kumparan.com", "tirto.id", "merdeka.com", 
-        "jawapos.com", "suara.com", "tribunnews.com", "pikiran-rakyat.com",
-        "radarbanten.com", "beritabanten.com", "faktabanten.com", "totalbanten.com",
-        "antaranews.com"
+        "jawapos.com", "suara.com", "tribunnews.com", "pikiran-rakyat.com"
     ]
     
     try:
-        results = DDGS().news(keywords=query, region="id-id", safesearch="off", timelimit=rentang, max_results=20)
+        response = requests.get(url, timeout=10)
         
-        if results:
-            for r in results:
-                title = r.get('title', 'Tanpa Judul')
-                link = r.get('url', '')
+        if response.status_code == 200:
+            data = response.json()
+            articles = data.get('articles', [])
+            
+            for article in articles:
+                title = article.get('title', 'Tanpa Judul')
+                link = article.get('url', '')
+                source_name = article.get('source', {}).get('name', '').lower()
                 
                 if link:
-                    # CEK VALIDITAS: Apakah link berasal dari media besar?
+                    # CEK VALIDITAS: URL atau nama sumber media harus ada di daftar putih
                     link_lower = link.lower()
-                    if any(domain in link_lower for domain in media_besar):
+                    if any(domain in link_lower for domain in media_besar) or any(domain in source_name for domain in media_besar):
                         berita_asli.append(f"- {title} ({link})")
                         
                     if len(berita_asli) >= 10:
                         break
                         
-        return "\n".join(berita_asli)
+            return "\n".join(berita_asli)
+        else:
+            return f"ERROR_API: Kode {response.status_code} - Terjadi masalah pada server berita."
+            
     except Exception as e:
-        return f"ERROR_DDG: {e}"
+        return f"ERROR_REQ: Terputus dari jaringan - {e}"
 
 # --- TOMBOL PROSES ---
 if st.button("🚀 Buat Laporan Mingguan"):
-    with st.spinner("Mencari URL berita asli dan menyusun laporan..."):
+    with st.spinner("Mengunduh data berita dari API Resmi dan menyusun laporan..."):
         try:
-            kumpulan_berita = cari_berita(topik, wilayah, hari_kebelakang)
+            kumpulan_berita = cari_berita_api(topik, wilayah, hari_kebelakang)
             
-            if "ERROR_DDG" in kumpulan_berita:
-                st.error("Gagal menarik data berita. Server pencari sedang sibuk, silakan coba beberapa saat lagi.")
+            if "ERROR_" in kumpulan_berita:
+                st.error(f"Gagal menarik data: {kumpulan_berita}")
             elif not kumpulan_berita.strip():
                 st.warning(f"Sesuai parameter yang diminta, tidak ada pemberitaan dari media terverifikasi terkait isu '{topik}' spesifik di '{wilayah}' dalam periode waktu tersebut.")
             else:
-                client = genai.Client(api_key=api_key)
+                client = genai.Client(api_key=gemini_api_key)
                 
                 prompt = f"""
                 Anda adalah analis kebijakan. Berikut adalah daftar berita VALID dengan tautan langsung 
@@ -122,9 +129,9 @@ if st.button("🚀 Buat Laporan Mingguan"):
                     contents=prompt
                 )
                 
-                st.success("Laporan Berhasil Dibuat dengan Data Valid!")
+                st.success("Laporan Berhasil Dibuat dengan Data API Valid!")
                 st.markdown("### Hasil Laporan Mingguan")
                 st.markdown(response.text)
                 
         except Exception as e:
-            st.error(f"Terjadi kesalahan teknis: {e}")
+            st.error(f"Terjadi kesalahan teknis pada kecerdasan buatan: {e}")
