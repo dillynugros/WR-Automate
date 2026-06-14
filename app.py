@@ -1,5 +1,5 @@
 import streamlit as st
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from google import genai
 
 # --- MENGAMBIL API KEY SECARA OTOMATIS ---
@@ -40,11 +40,11 @@ with st.sidebar:
     wilayah = st.text_input("Wilayah Spesifik", value="Banten")
     hari_kebelakang = st.slider("Cari berita berapa hari ke belakang?", 1, 30, 7)
 
-# --- FUNGSI PENCARIAN BERITA (DUCKDUCKGO DENGAN FILTER MEDIA BESAR) ---
+# --- FUNGSI PENCARIAN BERITA (DENGAN FILTER MEDIA BESAR) ---
 def cari_berita(topik, wilayah, hari):
     query = f'"{topik}" {wilayah}'
     
-    # Konversi hari ke format DuckDuckGo
+    # Konversi hari ke format pencarian
     if hari <= 1:
         rentang = "d"
     elif hari <= 7:
@@ -57,10 +57,12 @@ def cari_berita(topik, wilayah, hari):
     # DAFTAR PUTIH (WHITELIST) MEDIA BESAR KREDIBEL
     media_besar = [
         "kompas.com", "detik.com", "tempo.co", "antaranews.com", 
-        "cnnindonesia.com", "republika.co.id", "bisnis.com", "faktabanten.com",
-        "cnbcindonesia.com", "kontan.co.id", "investor.id", "totalbanten.com",
-        "liputan6.com", "kumparan.com", "tirto.id", "merdeka.com", "mediabanten.com",
-        "jawapos.com", "suara.com", "tribunnews.com", "pikiran-rakyat.com", "radarbanten.com", "beritabanten.com"
+        "cnnindonesia.com", "republika.co.id", "bisnis.com", 
+        "cnbcindonesia.com", "kontan.co.id", "investor.id", 
+        "liputan6.com", "kumparan.com", "tirto.id", "merdeka.com", 
+        "jawapos.com", "suara.com", "tribunnews.com", "pikiran-rakyat.com",
+        "radarbanten.com", "beritabanten.com", "faktabanten.com", "totalbanten.com",
+        "antaranews.com"
     ]
     
     try:
@@ -73,19 +75,17 @@ def cari_berita(topik, wilayah, hari):
                 
                 if link:
                     # CEK VALIDITAS: Apakah link berasal dari media besar?
-                    # Mengubah link menjadi huruf kecil semua untuk pencocokan yang aman
                     link_lower = link.lower()
                     if any(domain in link_lower for domain in media_besar):
                         berita_asli.append(f"- {title} ({link})")
                         
-                    # Hentikan jika sudah mengumpulkan 10 berita yang benar-benar valid
                     if len(berita_asli) >= 10:
                         break
                         
         return "\n".join(berita_asli)
     except Exception as e:
         return f"ERROR_DDG: {e}"
-        
+
 # --- TOMBOL PROSES ---
 if st.button("🚀 Buat Laporan Mingguan"):
     with st.spinner("Mencari URL berita asli dan menyusun laporan..."):
@@ -95,7 +95,7 @@ if st.button("🚀 Buat Laporan Mingguan"):
             if "ERROR_DDG" in kumpulan_berita:
                 st.error("Gagal menarik data berita. Server pencari sedang sibuk, silakan coba beberapa saat lagi.")
             elif not kumpulan_berita.strip():
-                st.warning(f"Sampaikan apa adanya: Benar-benar TIDAK DITEMUKAN berita terkait isu '{topik}' spesifik di '{wilayah}' dalam periode yang dipilih pada mesin pencari berita.")
+                st.warning(f"Sesuai parameter yang diminta, tidak ada pemberitaan dari media terverifikasi terkait isu '{topik}' spesifik di '{wilayah}' dalam periode waktu tersebut.")
             else:
                 client = genai.Client(api_key=api_key)
                 
@@ -122,7 +122,7 @@ if st.button("🚀 Buat Laporan Mingguan"):
                     contents=prompt
                 )
                 
-                st.success("Laporan Berhasil Dibuat dengan URL Asli!")
+                st.success("Laporan Berhasil Dibuat dengan Data Valid!")
                 st.markdown("### Hasil Laporan Mingguan")
                 st.markdown(response.text)
                 
