@@ -77,3 +77,47 @@ if st.button("🚀 Buat Laporan Mingguan"):
                     
             except Exception as e:
                 st.error(f"Terjadi kesalahan: {e}")
+
+5. Klik **Save**.
+
+### Langkah 2: Sesuaikan Kode di `app.py`
+Sekarang, kita buat aplikasinya mengambil kunci tersebut secara otomatis dari brankas rahasia, bukan lagi dari input pengguna di layar. 
+
+Ubah sedikit kode `app.py` Anda di GitHub. Hapus bagian input API Key di *sidebar* dan ubah logika pemanggilannya menjadi seperti ini:
+
+```python
+import streamlit as st
+import feedparser
+import urllib.parse
+from google import genai
+
+# --- MENGAMBIL API KEY SECARA OTOMATIS ---
+api_key = st.secrets["GEMINI_API_KEY"]
+
+# --- KONFIGURASI ANTARMUKA (UI) ---
+st.set_page_config(page_title="Generator Weekly Report Banten", page_icon="📰")
+st.title("📰 Generator Laporan Mingguan Otomatis")
+
+# --- SIDEBAR UNTUK PENGATURAN ---
+with st.sidebar:
+    st.header("⚙️ Pengaturan")
+    # Input API Key dihapus karena sudah otomatis
+    topik = st.text_input("Topik Berita", value="Makan Bergizi Gratis")
+    wilayah = st.text_input("Wilayah Spesifik", value="Banten")
+    hari_kebelakang = st.slider("Cari berita berapa hari ke belakang?", 1, 14, 7)
+
+# ... (Fungsi cari_berita tetap sama) ...
+
+# --- TOMBOL PROSES ---
+if st.button("🚀 Buat Laporan Mingguan"):
+    with st.spinner("Mencari berita dan menyusun laporan..."):
+        try:
+            kumpulan_berita = cari_berita(topik, wilayah, hari_kebelakang)
+            
+            if not kumpulan_berita.strip():
+                st.warning("Tidak ditemukan berita untuk topik dan rentang waktu tersebut.")
+            else:
+                # Klien langsung menggunakan api_key dari rahasia server
+                client = genai.Client(api_key=api_key)
+                
+                # ... (Sisa kode pemrosesan AI tetap sama) ...
