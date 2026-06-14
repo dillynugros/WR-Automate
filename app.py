@@ -1,5 +1,5 @@
 import streamlit as st
-from google_search import DDGS
+from duckduckgo_search import DDGS
 from google import genai
 
 # --- MENGAMBIL API KEY SECARA OTOMATIS ---
@@ -40,11 +40,11 @@ with st.sidebar:
     wilayah = st.text_input("Wilayah Spesifik", value="Banten")
     hari_kebelakang = st.slider("Cari berita berapa hari ke belakang?", 1, 30, 7)
 
-# --- FUNGSI PENCARIAN BERITA (GOOGLE) ---
+# --- FUNGSI PENCARIAN BERITA (DUCKDUCKGO) ---
 def cari_berita(topik, wilayah, hari):
     query = f'"{topik}" {wilayah}'
     
-    # Konversi hari ke format Google (d=hari ini, w=minggu ini, m=bulan ini)
+    # Konversi hari ke format DuckDuckGo (d=hari ini, w=minggu ini, m=bulan ini)
     if hari <= 1:
         rentang = "d"
     elif hari <= 7:
@@ -67,7 +67,7 @@ def cari_berita(topik, wilayah, hari):
                     
         return "\n".join(berita_asli)
     except Exception as e:
-        # Menangkap error jika Google membatasi pencarian
+        # Menangkap error jika DuckDuckGo membatasi pencarian
         return f"ERROR_DDG: {e}"
 
 # --- TOMBOL PROSES ---
