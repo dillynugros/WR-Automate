@@ -40,11 +40,11 @@ with st.sidebar:
     wilayah = st.text_input("Wilayah Spesifik", value="Banten")
     hari_kebelakang = st.slider("Cari berita berapa hari ke belakang?", 1, 30, 7)
 
-# --- FUNGSI PENCARIAN BERITA (DUCKDUCKGO) ---
+# --- FUNGSI PENCARIAN BERITA (DUCKDUCKGO DENGAN FILTER MEDIA BESAR) ---
 def cari_berita(topik, wilayah, hari):
     query = f'"{topik}" {wilayah}'
     
-    # Konversi hari ke format DuckDuckGo (d=hari ini, w=minggu ini, m=bulan ini)
+    # Konversi hari ke format DuckDuckGo
     if hari <= 1:
         rentang = "d"
     elif hari <= 7:
@@ -54,22 +54,38 @@ def cari_berita(topik, wilayah, hari):
         
     berita_asli = []
     
+    # DAFTAR PUTIH (WHITELIST) MEDIA BESAR KREDIBEL
+    media_besar = [
+        "kompas.com", "detik.com", "tempo.co", "antaranews.com", 
+        "cnnindonesia.com", "republika.co.id", "bisnis.com", "faktabanten.com",
+        "cnbcindonesia.com", "kontan.co.id", "investor.id", "totalbanten.com",
+        "liputan6.com", "kumparan.com", "tirto.id", "merdeka.com", "mediabanten.com",
+        "jawapos.com", "suara.com", "tribunnews.com", "pikiran-rakyat.com", "radarbanten.com", "beritabanten.com"
+    ]
+    
     try:
-        # DDGS langsung memberikan tautan final ke situs web berita
-        results = DDGS().news(keywords=query, region="id-id", safesearch="off", timelimit=rentang, max_results=10)
+        results = DDGS().news(keywords=query, region="id-id", safesearch="off", timelimit=rentang, max_results=20)
         
         if results:
             for r in results:
                 title = r.get('title', 'Tanpa Judul')
                 link = r.get('url', '')
+                
                 if link:
-                    berita_asli.append(f"- {title} ({link})")
-                    
+                    # CEK VALIDITAS: Apakah link berasal dari media besar?
+                    # Mengubah link menjadi huruf kecil semua untuk pencocokan yang aman
+                    link_lower = link.lower()
+                    if any(domain in link_lower for domain in media_besar):
+                        berita_asli.append(f"- {title} ({link})")
+                        
+                    # Hentikan jika sudah mengumpulkan 10 berita yang benar-benar valid
+                    if len(berita_asli) >= 10:
+                        break
+                        
         return "\n".join(berita_asli)
     except Exception as e:
-        # Menangkap error jika DuckDuckGo membatasi pencarian
         return f"ERROR_DDG: {e}"
-
+        
 # --- TOMBOL PROSES ---
 if st.button("🚀 Buat Laporan Mingguan"):
     with st.spinner("Mencari URL berita asli dan menyusun laporan..."):
